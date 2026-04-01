@@ -1,0 +1,35 @@
+# Build artifacts
+Binaries/
+Intermediate/
+
+# Output / packaged distribution
+Output/
+
+# IDE / Editor files
+.vs/
+.vscode/
+*.user
+*.suo
+*.ncb
+*.sdf
+*.opensdf
+*.aps
+*.cachefile
+*.sbr
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.tlog
+*.idb
+*.log
+*.res
+*.pch
+
+# Derived Data
+DerivedDataCache/
+
+# OS files
+Thumbs.db
+.DS_Store
