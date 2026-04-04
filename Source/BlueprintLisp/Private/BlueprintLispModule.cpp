@@ -1,0 +1,21 @@
+// Copyright (c) 2026 OpenClaw Research. All Rights Reserved.
+// BlueprintLispModule.cpp
+
+#include "BlueprintLispModule.h"
+#include "Modules/ModuleManager.h"
+
+#define LOCTEXT_NAMESPACE "FBlueprintLispModule"
+
+void FBlueprintLispModule::StartupModule()
+{
+	UE_LOG(LogTemp, Log, TEXT("[BlueprintLisp] Module loaded."));
+}
+
+void FBlueprintLispModule::ShutdownModule()
+{
+	UE_LOG(LogTemp, Log, TEXT("[BlueprintLisp] Module unloaded."));
+}
+
+#undef LOCTEXT_NAMESPACE
+
+IMPLEMENT_MODULE(FBlueprintLispModule, BlueprintLisp)
