@@ -12,6 +12,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Kismet2/KismetEditorUtilities.h"
+
 
 namespace BPLispBridge
 {
@@ -199,11 +201,28 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ExportGraphToDefaultPath(
 
 // ========== Import ==========
 
+namespace
+{
+	static FBlueprintLispConverter::EImportMode ToConverterImportMode(EBlueprintLispPythonImportMode ImportMode)
+	{
+		switch (ImportMode)
+		{
+		case EBlueprintLispPythonImportMode::MergeAppend:
+			return FBlueprintLispConverter::EImportMode::MergeAppend;
+		case EBlueprintLispPythonImportMode::UpdateSemantic:
+			return FBlueprintLispConverter::EImportMode::UpdateSemantic;
+		case EBlueprintLispPythonImportMode::ReplaceGraph:
+		default:
+			return FBlueprintLispConverter::EImportMode::ReplaceGraph;
+		}
+	}
+}
+
 FBlueprintLispPythonResult UBlueprintLispPythonBridge::ImportGraphFromText(
 	const FString& BlueprintPath,
 	const FString& GraphName,
 	const FString& DSLText,
-	bool bClearExisting,
+	EBlueprintLispPythonImportMode ImportMode,
 	bool bCompile,
 	bool bSavePackage)
 {
@@ -220,9 +239,10 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ImportGraphFromText(
 	}
 
 	FBlueprintLispConverter::FImportOptions Opts;
-	Opts.bClearExisting = bClearExisting;
+	Opts.ImportMode = ToConverterImportMode(ImportMode);
 	Opts.bCompile = bCompile;
 	Opts.bAutoLayout = true;
+	Opts.bFailOnUnsupportedForm = true;
 
 	FBlueprintLispResult LispResult = FBlueprintLispConverter::Import(BP, GraphName, DSLText, Opts);
 	FBlueprintLispPythonResult Result = BPLispBridge::FromLispResult(LispResult, ResolvedPath,
@@ -245,7 +265,7 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ImportGraphFromFile(
 	const FString& BlueprintPath,
 	const FString& GraphName,
 	const FString& InputFilePath,
-	bool bClearExisting,
+	EBlueprintLispPythonImportMode ImportMode,
 	bool bCompile,
 	bool bSavePackage)
 {
@@ -256,7 +276,7 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ImportGraphFromFile(
 		return BPLispBridge::MakeFailure(Error);
 	}
 	FBlueprintLispPythonResult Result = ImportGraphFromText(
-		BlueprintPath, GraphName, DSLText, bClearExisting, bCompile, bSavePackage);
+		BlueprintPath, GraphName, DSLText, ImportMode, bCompile, bSavePackage);
 	Result.FilePath = InputFilePath;
 	return Result;
 }
@@ -409,3 +429,5 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ExportStub(const FString&
 	return Result;
 #endif
 }
+
+

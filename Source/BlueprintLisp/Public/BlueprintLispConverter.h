@@ -109,11 +109,19 @@ public:
 	// Import  (DSL -> Blueprint)
 	// ---------------------------------------------------------------
 
+	enum class EImportMode : uint8
+	{
+		ReplaceGraph,
+		MergeAppend,
+		UpdateSemantic,
+	};
+
 	struct FImportOptions
 	{
-		bool bClearExisting = false;  // Wipe existing nodes before importing
-		bool bAutoLayout    = true;   // Run auto-layout after import
-		bool bCompile       = true;   // Compile Blueprint after import
+		EImportMode ImportMode = EImportMode::ReplaceGraph; // Default to safe replace semantics
+		bool bAutoLayout = true;                            // Run auto-layout after import
+		bool bCompile = true;                               // Compile Blueprint after import
+		bool bFailOnUnsupportedForm = true;                 // Abort before mutating graphs on known unsupported forms
 	};
 
 	/**

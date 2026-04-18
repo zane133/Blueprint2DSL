@@ -23,6 +23,14 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "BlueprintLispPythonBridge.generated.h"
 
+UENUM(BlueprintType)
+enum class EBlueprintLispPythonImportMode : uint8
+{
+	ReplaceGraph UMETA(DisplayName="ReplaceGraph"),
+	MergeAppend UMETA(DisplayName="MergeAppend"),
+	UpdateSemantic UMETA(DisplayName="UpdateSemantic"),
+};
+
 /**
  * Structured result returned to Unreal Python / Blueprint callers.
  */
@@ -114,8 +122,8 @@ public:
 
 	/**
 	 * Import BlueprintLisp DSL text into the named graph of a Blueprint.
-	 * By default clears existing nodes first and compiles after import.
-	 * @param bClearExisting  Wipe existing graph nodes before importing
+	 * Default mode is ReplaceGraph to avoid accidental node duplication / exec chain forks.
+	 * @param ImportMode      Replace, merge, or future semantic-update import mode
 	 * @param bCompile        Compile Blueprint after import
 	 * @param bSavePackage    Save package to disk after import
 	 */
@@ -124,7 +132,7 @@ public:
 		const FString& BlueprintPath,
 		const FString& GraphName,
 		const FString& DSLText,
-		bool bClearExisting = false,
+		EBlueprintLispPythonImportMode ImportMode = EBlueprintLispPythonImportMode::ReplaceGraph,
 		bool bCompile = true,
 		bool bSavePackage = true);
 
@@ -136,7 +144,7 @@ public:
 		const FString& BlueprintPath,
 		const FString& GraphName,
 		const FString& InputFilePath,
-		bool bClearExisting = false,
+		EBlueprintLispPythonImportMode ImportMode = EBlueprintLispPythonImportMode::ReplaceGraph,
 		bool bCompile = true,
 		bool bSavePackage = true);
 
@@ -200,6 +208,7 @@ public:
 	// ---------------------------------------------------------------
 	// Stub Export
 	// ---------------------------------------------------------------
+
 
 	/**
 	 * Export all UK2Node type definitions to a stub file.
