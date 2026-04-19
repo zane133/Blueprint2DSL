@@ -1310,6 +1310,9 @@ static UEdGraphPin* IMP_ResolveLispExpr(const FLispNodePtr& Expr, FBPImportConte
 static UEdGraphNode* IMP_ConvertFormToNode(const FLispNodePtr& Form, FBPImportContext& Ctx, UEdGraphPin*& OutExecPin);
 static void IMP_ConvertExecBody(const FLispNodePtr& Body, FBPImportContext& Ctx, UEdGraphPin*& CurrentExecPin);
 static bool IMP_SetPinFromExpr(UEdGraphPin* Pin, const FLispNodePtr& Expr, FBPImportContext& Ctx);
+static FString IMP_ExtractCallMacroName(const FLispNodePtr& Form, int32& OutArgStartIndex);
+static UK2Node_MacroInstance* IMP_CreateMacroInstanceNode(const FLispNodePtr& Form, FBPImportContext& Ctx, UEdGraphPin*& OutPreferredOutputPin);
+
 
 
 enum class EIMPGraphKind : uint8
@@ -1798,11 +1801,115 @@ static void IMP_SeedMakeArrayLiteralType(UK2Node_MakeArray* MakeArrayNode, const
 	}
 }
 
+static bool IMP_CanPinsConnectWithoutMutation(UEdGraph* Graph, UEdGraphPin* Src, UEdGraphPin* Dst)
+{
+	if (!Graph || !Graph->GetSchema() || !Src || !Dst)
+	{
+		return false;
+	}
+
+	const FPinConnectionResponse Response = Graph->GetSchema()->CanCreateConnection(Src, Dst);
+	return Response.Response != CONNECT_RESPONSE_DISALLOW;
+}
+
+static int32 IMP_CountVisibleDataOutputPins(UEdGraphNode* Node)
+{
+	if (!Node) return 0;
+
+	int32 Count = 0;
+	for (UEdGraphPin* Pin : Node->Pins)
+	{
+		if (!Pin || Pin->Direction != EGPD_Output) continue;
+		if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec) continue;
+		if (Pin->bHidden) continue;
+		++Count;
+	}
+	return Count;
+}
+
+static UEdGraphPin* IMP_SelectBestMacroOutputPinForDestination(UK2Node_MacroInstance* MacroNode, UEdGraphPin* DestinationPin, UEdGraph* Graph)
+{
+	if (!MacroNode || !DestinationPin)
+	{
+		return nullptr;
+	}
+
+	TArray<UEdGraphPin*> CompatiblePins;
+	for (UEdGraphPin* Candidate : MacroNode->Pins)
+	{
+		if (!Candidate || Candidate->Direction != EGPD_Output) continue;
+		if (Candidate->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec) continue;
+		if (Candidate->bHidden) continue;
+		if (IMP_CanPinsConnectWithoutMutation(Graph, Candidate, DestinationPin))
+		{
+			CompatiblePins.Add(Candidate);
+		}
+	}
+
+	if (CompatiblePins.Num() == 1)
+	{
+		return CompatiblePins[0];
+	}
+
+	const FString DestinationName = DestinationPin->PinName.ToString();
+	const FString DestinationNoSpaces = DestinationName.Replace(TEXT(" "), TEXT(""));
+	for (UEdGraphPin* Candidate : CompatiblePins)
+	{
+		const FString CandidateName = Candidate->PinName.ToString();
+		if (CandidateName.Equals(DestinationName, ESearchCase::IgnoreCase))
+		{
+			return Candidate;
+		}
+		if (!DestinationNoSpaces.IsEmpty() && CandidateName.Replace(TEXT(" "), TEXT("")).Equals(DestinationNoSpaces, ESearchCase::IgnoreCase))
+		{
+			return Candidate;
+		}
+	}
+
+	return nullptr;
+}
+
 // Set a pin's default value from a Lisp expression (number, string, bool, or connected expr)
 static bool IMP_SetPinFromExpr(UEdGraphPin* Pin, const FLispNodePtr& Expr, FBPImportContext& Ctx)
 
+
 {
 	if (!Pin || !Expr.IsValid()) return false;
+
+	if (Expr->IsForm(TEXT("call-macro")) && Expr->Num() >= 2)
+	{
+		UEdGraphPin* PreferredOutputPin = nullptr;
+		if (UK2Node_MacroInstance* MacroNode = IMP_CreateMacroInstanceNode(Expr, Ctx, PreferredOutputPin))
+		{
+			UEdGraphPin* SelectedOutputPin = PreferredOutputPin ? PreferredOutputPin : IMP_FindOutputPin(MacroNode, TEXT(""));
+			const bool bHasExplicitOut = Expr->HasKeyword(TEXT(":out"));
+			if (!bHasExplicitOut)
+			{
+				if (UEdGraphPin* CompatibleOutputPin = IMP_SelectBestMacroOutputPinForDestination(MacroNode, Pin, Ctx.Graph))
+				{
+					SelectedOutputPin = CompatibleOutputPin;
+				}
+				else if (IMP_CountVisibleDataOutputPins(MacroNode) > 1
+					&& (!SelectedOutputPin || !IMP_CanPinsConnectWithoutMutation(Ctx.Graph, SelectedOutputPin, Pin)))
+				{
+					int32 MacroArgStartIndex = 2;
+					const FString MacroName = IMP_ExtractCallMacroName(Expr, MacroArgStartIndex);
+					const FString OwnerNodeTitle = Pin->GetOwningNode() ? Pin->GetOwningNode()->GetNodeTitle(ENodeTitleType::ListView).ToString() : TEXT("<null node>");
+					Ctx.Errors.Add(FString::Printf(
+						TEXT("IMP_SetPinFromExpr: call-macro '%s' has no unique output compatible with pin %s.%s; add :out to disambiguate"),
+						*MacroName,
+						*OwnerNodeTitle,
+						*Pin->PinName.ToString()));
+					return false;
+				}
+			}
+
+			if (SelectedOutputPin)
+			{
+				return IMP_Connect(SelectedOutputPin, Pin, Ctx);
+			}
+		}
+	}
 
 	UEdGraphPin* Src = IMP_ResolveLispExpr(Expr, Ctx);
 	if (Src) { return IMP_Connect(Src, Pin, Ctx); }
@@ -1813,6 +1920,7 @@ static bool IMP_SetPinFromExpr(UEdGraphPin* Pin, const FLispNodePtr& Expr, FBPIm
 		Ctx.LastAssetPath.Empty();
 		if (Asset) { Pin->DefaultObject = Asset; return true; }
 	}
+
 
 	if (Expr->IsNumber())
 	{
@@ -2397,8 +2505,160 @@ static FString IMP_GetAtomName(const FLispNodePtr& Node)
 	return TEXT("");
 }
 
+static bool IMP_TryExtractNamedTypedPair(const FLispNodePtr& PairNode, FString& OutName, FString& OutType)
+{
+	OutName.Reset();
+	OutType.Reset();
+	if (!PairNode.IsValid() || !PairNode->IsList() || PairNode->Num() < 2)
+	{
+		return false;
+	}
+
+	OutName = IMP_GetAtomName(PairNode->Get(0));
+	OutType = IMP_GetAtomName(PairNode->Get(1));
+	return !OutName.IsEmpty() && !OutType.IsEmpty();
+}
+
+static bool IMP_BuildPinTypeFromLispType(const FString& TypeName, FEdGraphPinType& OutPinType, FBPImportContext& Ctx)
+{
+	OutPinType = FEdGraphPinType();
+
+	const FString Normalized = TypeName.TrimStartAndEnd();
+	const FString Lower = Normalized.ToLower();
+	if (Lower.IsEmpty())
+	{
+		return false;
+	}
+
+	if (Lower == TEXT("vector"))
+	{
+		OutPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+		OutPinType.PinSubCategoryObject = TBaseStructure<FVector>::Get();
+		return true;
+	}
+	if (Lower == TEXT("vector2d"))
+	{
+		OutPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+		OutPinType.PinSubCategoryObject = TBaseStructure<FVector2D>::Get();
+		return true;
+	}
+	if (Lower == TEXT("rotator"))
+	{
+		OutPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+		OutPinType.PinSubCategoryObject = TBaseStructure<FRotator>::Get();
+		return true;
+	}
+	if (Lower == TEXT("transform"))
+	{
+		OutPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+		OutPinType.PinSubCategoryObject = TBaseStructure<FTransform>::Get();
+		return true;
+	}
+
+	FName PinCategory = NAME_None;
+	if (IMP_MapLispTypeToPinCategory(Normalized, PinCategory))
+	{
+		OutPinType.PinCategory = PinCategory;
+		return true;
+	}
+
+	if (UClass* ResolvedClass = IMP_FindClassByName(Normalized, Ctx))
+	{
+		OutPinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+		OutPinType.PinSubCategoryObject = ResolvedClass;
+		return true;
+	}
+
+	return false;
+}
+
+static void IMP_EnsureFunctionEntryParamsFromFunctionForm(UK2Node_FunctionEntry* ExistingEntry, const FLispNodePtr& Form, FBPImportContext& Ctx)
+{
+	if (!ExistingEntry || !Form.IsValid()) return;
+
+	int32 ArgStartIndex = 2;
+	IMP_ExtractCompoundName(Form, 1, ArgStartIndex);
+
+	bool bChanged = false;
+	for (int32 i = ArgStartIndex; i + 1 < Form->Num(); ++i)
+	{
+		const FLispNodePtr KeywordNode = Form->Get(i);
+		if (!KeywordNode.IsValid() || !KeywordNode->IsKeyword())
+		{
+			break;
+		}
+
+		const FString Keyword = KeywordNode->StringValue;
+		const FLispNodePtr ValueNode = Form->Get(i + 1);
+		if (Keyword.Equals(TEXT(":param"), ESearchCase::IgnoreCase))
+		{
+			FString ParamName;
+			FString ParamType;
+			if (!IMP_TryExtractNamedTypedPair(ValueNode, ParamName, ParamType))
+			{
+				Ctx.Errors.Add(TEXT("Import function form failed: invalid :param declaration"));
+				i += 1;
+				continue;
+			}
+
+			bool bAlreadyExists = false;
+			for (UEdGraphPin* ExistingPin : ExistingEntry->Pins)
+			{
+				if (!ExistingPin || ExistingPin->Direction != EGPD_Output || ExistingPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec || ExistingPin->bHidden)
+				{
+					continue;
+				}
+				if (ExistingPin->PinName.ToString().Equals(ParamName, ESearchCase::IgnoreCase))
+				{
+					bAlreadyExists = true;
+					break;
+				}
+			}
+			if (bAlreadyExists)
+			{
+				i += 1;
+				continue;
+			}
+
+			FEdGraphPinType ParamPinType;
+			if (!IMP_BuildPinTypeFromLispType(ParamType, ParamPinType, Ctx))
+			{
+				Ctx.Errors.Add(FString::Printf(TEXT("Import function form failed: unsupported parameter type '%s'"), *ParamType));
+				i += 1;
+				continue;
+			}
+
+			if (!ExistingEntry->CreateUserDefinedPin(FName(*ParamName), ParamPinType, EGPD_Output, false))
+			{
+				Ctx.Errors.Add(FString::Printf(TEXT("Import function form failed: could not create parameter '%s'"), *ParamName));
+				i += 1;
+				continue;
+			}
+			bChanged = true;
+		}
+
+		i += 1;
+	}
+
+	if (!bChanged)
+	{
+		return;
+	}
+
+	const bool bPrevDisableOrphanPinSaving = ExistingEntry->bDisableOrphanPinSaving;
+	ExistingEntry->bDisableOrphanPinSaving = true;
+	ExistingEntry->ReconstructNode();
+	ExistingEntry->bDisableOrphanPinSaving = bPrevDisableOrphanPinSaving;
+
+	if (const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>())
+	{
+		K2Schema->HandleParameterDefaultValueChanged(ExistingEntry);
+	}
+}
+
 static FLispNodePtr IMP_MakeSeqBody(const TArray<FLispNodePtr>& Statements)
 {
+
 	if (Statements.Num() == 0) return FLispNode::MakeNil();
 	if (Statements.Num() == 1) return Statements[0];
 
@@ -4531,9 +4791,16 @@ FBlueprintLispResult FBlueprintLispConverter::Import(
 
 			{
 
+				IMP_EnsureFunctionEntryParamsFromFunctionForm(ExistingEntry, Form, Ctx);
+				if (Ctx.Errors.Num() > 0)
+				{
+					return IMP_FailFromContext(Ctx, TEXT("Import function form failed"));
+				}
+
 				// Register the FunctionEntry's output pins as variables for downstream node resolution
 				FString EntryGuid = ExistingEntry->NodeGuid.ToString();
 				Ctx.TempIdToNode.Add(EntryGuid, ExistingEntry);
+
 
 				for (UEdGraphPin* P : ExistingEntry->Pins)
 				{
@@ -4739,8 +5006,15 @@ FBlueprintLispResult FBlueprintLispConverter::ImportGraph(
 		Ctx.Blueprint = BP;
 		Ctx.Graph     = Graph;
 
+		IMP_EnsureFunctionEntryParamsFromFunctionForm(ExistingEntry, TopExpr, Ctx);
+		if (Ctx.Errors.Num() > 0)
+		{
+			return IMP_FailFromContext(Ctx, TEXT("ImportGraph function import failed"));
+		}
+
 		FString EntryGuid = ExistingEntry->NodeGuid.ToString();
 		Ctx.TempIdToNode.Add(EntryGuid, ExistingEntry);
+
 
 		for (UEdGraphPin* P : ExistingEntry->Pins)
 		{
