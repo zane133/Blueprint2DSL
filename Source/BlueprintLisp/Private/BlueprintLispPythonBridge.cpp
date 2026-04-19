@@ -254,11 +254,13 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ImportGraphFromText(
 		Result.bSavedPackage = BPLispBridge::SaveBlueprintPackage(BP, SaveError);
 		if (!Result.bSavedPackage)
 		{
+			Result.bSuccess = false;
 			Result.Warnings.Add(SaveError);
-			Result.Message += TEXT(" (package save failed)");
+			Result.Message = SaveError;
 		}
 	}
 	return Result;
+
 }
 
 FBlueprintLispPythonResult UBlueprintLispPythonBridge::ImportGraphFromFile(
@@ -316,11 +318,13 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::UpdateGraphFromText(
 		Result.bSavedPackage = BPLispBridge::SaveBlueprintPackage(BP, SaveError);
 		if (!Result.bSavedPackage)
 		{
+			Result.bSuccess = false;
 			Result.Warnings.Add(SaveError);
-			Result.Message += TEXT(" (package save failed)");
+			Result.Message = SaveError;
 		}
 	}
 	return Result;
+
 }
 
 FBlueprintLispPythonResult UBlueprintLispPythonBridge::UpdateGraphFromFile(

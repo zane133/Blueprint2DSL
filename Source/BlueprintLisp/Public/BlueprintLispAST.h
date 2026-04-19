@@ -5,25 +5,35 @@
 // Original author: Jon Olick
 //
 // Syntax overview:
-//   (event BeginPlay
+//   (event ReceiveBeginPlay
+//     (call-parent ReceiveBeginPlay)
 //     (let player (GetPlayerCharacter 0))
 //     (branch (IsValid player)
 //       :true  (PrintString "Hello")
 //       :false (PrintString "No player")))
 //
 // Core forms:
-//   (event Name ...)           - Event node
-//   (func Name ...)            - Function definition
-//   (let var expr)             - Local variable
-//   (set var expr)             - Set variable
-//   (seq ...)                  - Execution sequence
-//   (branch cond :true :false) - Branch node
-//   (foreach item coll ...)    - ForEach loop
-//   (call target func args...) - Call method on object
-//   (delay seconds)            - Delay node
-//   (cast Type var body)       - Cast with success exec
-//   (vec x y z)                - Vector literal
-//   (rot r p y)                - Rotator literal
+//   (event Name ...)                 - Event node
+//   (func Name ...)                  - FunctionGraph declaration
+//   (function Name ...)              - FunctionGraph body
+//   (macro Name ...)                 - MacroGraph body
+//   (call-parent Name [:pin value])  - Parent override call in EventGraph
+//   (call-macro Name [:pin value])   - Macro instance call
+//   (let var expr)                   - Local variable / reusable value alias
+//   (set var expr)                   - Set variable
+//   (seq ...)                        - Execution sequence
+//   (branch cond :true :false)       - Branch node
+//   (foreach item coll ...)          - ForEach loop
+//   (call target func args...)       - Call method on object
+//   (delay seconds)                  - Delay node
+//   (cast Type var body)             - Cast with success exec
+//   (vec x y z)                      - Vector literal
+//   (rot r p y)                      - Rotator literal
+//
+// Naming rule:
+//   Top-level event/function/macro names and call-parent/call-macro targets may use
+//   string atoms when the name contains spaces, e.g. (function "Villager Select" ...).
+
 
 #pragma once
 

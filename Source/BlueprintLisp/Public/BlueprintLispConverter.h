@@ -60,7 +60,13 @@ struct BLUEPRINTLISP_API FBlueprintLispResult
  *
  * Editor-only utility class for bidirectional Blueprint EventGraph <-> BlueprintLisp DSL conversion.
  * All methods are static; no instance required.
+ *
+ * Current stable graph forms include top-level event/function/macro import-export,
+ * call-macro, and call-parent for parent override invocations inside EventGraph.
+ * Names containing spaces should be represented as string atoms where applicable,
+ * e.g. (function "Villager Select" ...) or (call-parent "Receive Begin Play" ...).
  */
+
 class BLUEPRINTLISP_API FBlueprintLispConverter
 {
 public:
