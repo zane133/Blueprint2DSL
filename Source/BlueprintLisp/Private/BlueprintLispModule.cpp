@@ -17,7 +17,7 @@
 namespace BlueprintLispMenu
 {
 	static const FName SectionName(TEXT("BlueprintLisp"));
-	static const FName EntryName(TEXT("BlueprintLisp.ConvertToDSL"));
+	static const FName EntryName(TEXT("BlueprintLisp.ExportAllGraphsToDSL"));
 }
 
 void FBlueprintLispModule::StartupModule()
@@ -51,8 +51,8 @@ void FBlueprintLispModule::RegisterContentBrowserMenu()
 	FToolMenuSection& Section = Menu->FindOrAddSection(BlueprintLispMenu::SectionName);
 	Section.AddMenuEntry(
 		BlueprintLispMenu::EntryName,
-		LOCTEXT("ConvertBlueprintToDSL_Label", "转换蓝图成 DSL"),
-		LOCTEXT("ConvertBlueprintToDSL_Tooltip", "将选中的 Blueprint 导出为 BlueprintLisp DSL 文件"),
+		LOCTEXT("ExportBlueprintAllGraphsToDSL_Label", "导出 BlueprintLisp（全部图）"),
+		LOCTEXT("ExportBlueprintAllGraphsToDSL_Tooltip", "将选中的 Blueprint 的 Event/Function/Macro 图全部导出到默认 DSL 路径"),
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Kismet.Tabs.BlueprintDefaults"),
 		FToolMenuExecuteAction::CreateLambda([](const FToolMenuContext& Context)
 		{
@@ -70,12 +70,11 @@ void FBlueprintLispModule::RegisterContentBrowserMenu()
 				}
 
 				const FString BlueprintPath = AssetData.GetObjectPathString();
-				const FString GraphName = TEXT("EventGraph");
-				FBlueprintLispPythonResult Result = UBlueprintLispPythonBridge::ExportGraphToDefaultPath(BlueprintPath, GraphName, false, true);
+				FBlueprintLispPythonResult Result = UBlueprintLispPythonBridge::ExportAllGraphsToDefaultPath(BlueprintPath, false, true);
 
 				const bool bSuccess = Result.bSuccess;
 				const FText NotifyText = bSuccess
-					? FText::FromString(FString::Printf(TEXT("导出成功: %s"), *Result.FilePath))
+					? FText::FromString(Result.Message)
 					: FText::FromString(FString::Printf(TEXT("导出失败: %s"), *Result.Message));
 
 				FNotificationInfo Info(NotifyText);
@@ -93,6 +92,11 @@ void FBlueprintLispModule::RegisterContentBrowserMenu()
 				else
 				{
 					UE_LOG(LogTemp, Error, TEXT("[BlueprintLisp] %s"), *Result.Message);
+				}
+
+				for (const FString& Warning : Result.Warnings)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("[BlueprintLisp] %s"), *Warning);
 				}
 			}
 		}));

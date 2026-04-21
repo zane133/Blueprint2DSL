@@ -116,6 +116,18 @@ public:
 		bool bIncludePositions = false,
 		bool bStableIds = true);
 
+	/**
+	 * Export all graphs (Ubergraph/Function/Macro) to default .bplisp paths.
+	 * Each graph is written to:
+	 *   {Project}/Saved/BP2DSL/BlueprintLisp/{RelPath}/{GraphName}.bplisp
+	 * Result DSLText contains one output file path per line.
+	 */
+	UFUNCTION(BlueprintCallable, Category="BlueprintLisp|Python")
+	static FBlueprintLispPythonResult ExportAllGraphsToDefaultPath(
+		const FString& BlueprintPath,
+		bool bIncludePositions = false,
+		bool bStableIds = true);
+
 	// ---------------------------------------------------------------
 	// Import  (DSL text -> Blueprint graph)
 	// ---------------------------------------------------------------

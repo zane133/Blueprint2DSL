@@ -199,6 +199,73 @@ FBlueprintLispPythonResult UBlueprintLispPythonBridge::ExportGraphToDefaultPath(
 	return Result;
 }
 
+FBlueprintLispPythonResult UBlueprintLispPythonBridge::ExportAllGraphsToDefaultPath(
+	const FString& BlueprintPath,
+	bool bIncludePositions,
+	bool bStableIds)
+{
+	FString ResolvedPath;
+	FString Error;
+	UBlueprint* BP = BPLispBridge::LoadBlueprintByPath(BlueprintPath, ResolvedPath, Error);
+	if (!BP)
+	{
+		return BPLispBridge::MakeFailure(Error);
+	}
+
+	FBlueprintLispConverter::FExportOptions Opts;
+	Opts.bIncludePositions = bIncludePositions;
+	Opts.bStableIds = bStableIds;
+
+	TArray<FString> ExportedFiles;
+	TArray<FString> Warnings;
+
+	auto ExportGraph = [&](UEdGraph* Graph) -> bool
+	{
+		if (!Graph) return true;
+
+		const FString GraphName = Graph->GetName();
+		FBlueprintLispResult LispResult = FBlueprintLispConverter::Export(BP, GraphName, Opts);
+		if (!LispResult.bSuccess)
+		{
+			Warnings.Add(FString::Printf(TEXT("%s: %s"), *GraphName, *LispResult.Error));
+			return false;
+		}
+
+		const FString DefaultPath = FBlueprintLispMappingRegistry::BlueprintToDSLPath(BlueprintPath, GraphName);
+		if (DefaultPath.IsEmpty())
+		{
+			Warnings.Add(FString::Printf(TEXT("%s: cannot resolve default output path"), *GraphName));
+			return false;
+		}
+
+		FString WriteError;
+		if (!BPLispBridge::WriteTextFile(DefaultPath, LispResult.LispCode, WriteError))
+		{
+			Warnings.Add(FString::Printf(TEXT("%s: %s"), *GraphName, *WriteError));
+			return false;
+		}
+
+		ExportedFiles.Add(DefaultPath);
+		Warnings.Append(LispResult.Warnings);
+		return true;
+	};
+
+	bool bAllSuccess = true;
+	for (UEdGraph* G : BP->UbergraphPages)  bAllSuccess &= ExportGraph(G);
+	for (UEdGraph* G : BP->FunctionGraphs)  bAllSuccess &= ExportGraph(G);
+	for (UEdGraph* G : BP->MacroGraphs)     bAllSuccess &= ExportGraph(G);
+
+	FBlueprintLispPythonResult Result;
+	Result.bSuccess = bAllSuccess;
+	Result.AssetPath = ResolvedPath;
+	Result.Warnings = Warnings;
+	Result.DSLText = FString::Join(ExportedFiles, TEXT("\n"));
+	Result.Message = bAllSuccess
+		? FString::Printf(TEXT("Exported %d graphs from %s"), ExportedFiles.Num(), *ResolvedPath)
+		: FString::Printf(TEXT("Exported %d graphs with %d warning/error(s) from %s"), ExportedFiles.Num(), Warnings.Num(), *ResolvedPath);
+	return Result;
+}
+
 // ========== Import ==========
 
 namespace
