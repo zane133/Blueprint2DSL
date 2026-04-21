@@ -304,8 +304,20 @@ static FLispNodePtr ConvertPureExpressionToLisp(UEdGraphPin* ValuePin, UEdGraph*
 {
 	if (!ValuePin || ValuePin->LinkedTo.Num() == 0)
 	{
-		// Return default value as literal
-		if (!ValuePin || ValuePin->DefaultValue.IsEmpty()) return FLispNode::MakeNil();
+		// Return default value as literal.
+		// Object-like pins (e.g. MaterialParameterCollection) often store the selected asset
+		// on DefaultObject while DefaultValue stays empty. Export the object path so DSL
+		// retains explicit references like :collection.
+		if (!ValuePin) return FLispNode::MakeNil();
+		if (ValuePin->DefaultObject)
+		{
+			return FLispNode::MakeString(ValuePin->DefaultObject->GetPathName());
+		}
+		if (ValuePin->DefaultValue.IsEmpty()) return FLispNode::MakeNil();
+		if (ValuePin->DefaultValue.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+		{
+			return FLispNode::MakeNil();
+		}
 		double Num = 0;
 		if (ValuePin->PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
 			return FLispNode::MakeSymbol(ValuePin->DefaultValue.ToLower() == TEXT("true") ? TEXT("true") : TEXT("false"));
