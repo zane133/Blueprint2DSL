@@ -32,7 +32,6 @@ public class BlueprintLisp : ModuleRules
 			"AssetRegistry",
 			"AssetTools",
 			"InputCore",
-			"ContentBrowser",
 			"ToolMenus",
 			"Slate",
 			"SlateCore",

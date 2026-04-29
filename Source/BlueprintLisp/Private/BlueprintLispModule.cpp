@@ -3,114 +3,20 @@
 
 #include "BlueprintLispModule.h"
 #include "FBlueprintLispMappingRegistry.h"
-#include "BlueprintLispPythonBridge.h"
 #include "Modules/ModuleManager.h"
-#include "AssetRegistry/AssetData.h"
-#include "ContentBrowserMenuContexts.h"
-#include "Framework/Notifications/NotificationManager.h"
-#include "Styling/AppStyle.h"
-#include "Widgets/Notifications/SNotificationList.h"
-#include "ToolMenus.h"
 
 #define LOCTEXT_NAMESPACE "FBlueprintLispModule"
-
-namespace BlueprintLispMenu
-{
-	static const FName SectionName(TEXT("BlueprintLisp"));
-	static const FName EntryName(TEXT("BlueprintLisp.ExportAllGraphsToDSL"));
-}
 
 void FBlueprintLispModule::StartupModule()
 {
 	UE_LOG(LogTemp, Log, TEXT("[BlueprintLisp] Module loaded."));
 
-	// Initialize the MappingRegistry for default path resolution
 	FBlueprintLispMappingRegistry::Get().Initialize();
-
-	UToolMenus::RegisterStartupCallback(
-		FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FBlueprintLispModule::RegisterContentBrowserMenu));
 }
 
 void FBlueprintLispModule::ShutdownModule()
 {
-	UnregisterContentBrowserMenu();
-
 	UE_LOG(LogTemp, Log, TEXT("[BlueprintLisp] Module unloaded."));
-}
-
-void FBlueprintLispModule::RegisterContentBrowserMenu()
-{
-	FToolMenuOwnerScoped OwnerScoped(this);
-
-	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu(TEXT("ContentBrowser.AssetContextMenu.Blueprint"));
-	if (!Menu)
-	{
-		return;
-	}
-
-	FToolMenuSection& Section = Menu->FindOrAddSection(BlueprintLispMenu::SectionName);
-	Section.AddMenuEntry(
-		BlueprintLispMenu::EntryName,
-		LOCTEXT("ExportBlueprintAllGraphsToDSL_Label", "导出 BlueprintLisp（全部图）"),
-		LOCTEXT("ExportBlueprintAllGraphsToDSL_Tooltip", "将选中的 Blueprint 的 Event/Function/Macro 图全部导出到默认 DSL 路径"),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Kismet.Tabs.BlueprintDefaults"),
-		FToolMenuExecuteAction::CreateLambda([](const FToolMenuContext& Context)
-		{
-			const UContentBrowserAssetContextMenuContext* AssetContext = Context.FindContext<UContentBrowserAssetContextMenuContext>();
-			if (!AssetContext)
-			{
-				return;
-			}
-
-			for (const FAssetData& AssetData : AssetContext->SelectedAssets)
-			{
-				if (!AssetData.IsValid() || AssetData.AssetClassPath.GetAssetName() != TEXT("Blueprint"))
-				{
-					continue;
-				}
-
-				const FString BlueprintPath = AssetData.GetObjectPathString();
-				FBlueprintLispPythonResult Result = UBlueprintLispPythonBridge::ExportAllGraphsToDefaultPath(BlueprintPath, false, true);
-
-				const bool bSuccess = Result.bSuccess;
-				const FText NotifyText = bSuccess
-					? FText::FromString(Result.Message)
-					: FText::FromString(FString::Printf(TEXT("导出失败: %s"), *Result.Message));
-
-				FNotificationInfo Info(NotifyText);
-				Info.ExpireDuration = bSuccess ? 4.0f : 6.0f;
-				Info.bUseLargeFont = false;
-				Info.Image = bSuccess
-					? FAppStyle::GetBrush(TEXT("Icons.SuccessWithColor"))
-					: FAppStyle::GetBrush(TEXT("Icons.ErrorWithColor"));
-				FSlateNotificationManager::Get().AddNotification(Info);
-
-				if (bSuccess)
-				{
-					UE_LOG(LogTemp, Log, TEXT("[BlueprintLisp] %s"), *Result.Message);
-				}
-				else
-				{
-					UE_LOG(LogTemp, Error, TEXT("[BlueprintLisp] %s"), *Result.Message);
-				}
-
-				for (const FString& Warning : Result.Warnings)
-				{
-					UE_LOG(LogTemp, Warning, TEXT("[BlueprintLisp] %s"), *Warning);
-				}
-			}
-		}));
-}
-
-void FBlueprintLispModule::UnregisterContentBrowserMenu()
-{
-	if (!UToolMenus::TryGet())
-	{
-		return;
-	}
-
-	UToolMenus::UnRegisterStartupCallback(this);
-	UToolMenus::UnregisterOwner(this);
 }
 
 #undef LOCTEXT_NAMESPACE

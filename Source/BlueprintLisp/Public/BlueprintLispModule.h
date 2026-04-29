@@ -22,7 +22,4 @@ public:
 		return FModuleManager::Get().IsModuleLoaded("BlueprintLisp");
 	}
 
-private:
-	void RegisterContentBrowserMenu();
-	void UnregisterContentBrowserMenu();
 };
